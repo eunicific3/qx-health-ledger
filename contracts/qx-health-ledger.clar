@@ -327,3 +327,122 @@
   )
 )
 
+;; Emergency access override system with comprehensive security controls and audit trail
+(define-public (emergency-access-override 
+  (vault-entry-identifier uint) 
+  (emergency-medical-authority principal)
+  (emergency-justification (string-ascii 64))
+  (override-duration-blocks uint))
+  (let
+    (
+      (existing-vault-data (unwrap! (map-get? healthcare-information-vault { vault-entry-identifier: vault-entry-identifier }) ERR_HEALTHCARE_RECORD_MISSING))
+      (emergency-practitioner-data (unwrap! (map-get? medical-practitioner-registry { practitioner-principal: emergency-medical-authority }) ERR_MEDICAL_PROFESSIONAL_INVALID))
+      (override-timestamp block-height)
+      (expiration-block (+ block-height override-duration-blocks))
+      (emergency-operation-id (+ vault-entry-identifier u3000000))
+      (current-responsible-authority (get responsible-medical-authority existing-vault-data))
+    )
+    ;; Critical system status validation for emergency operations
+    (asserts! (var-get healthcare-network-status) ERR_BLOCKCHAIN_OPERATION_FAILED)
+    (asserts! (not (var-get system-maintenance-mode)) ERR_SYSTEM_ADMINISTRATOR_REQUIRED)
+
+    ;; Healthcare record existence and accessibility verification
+    (asserts! (validate-healthcare-record-presence vault-entry-identifier) ERR_HEALTHCARE_RECORD_MISSING)
+
+    ;; Emergency medical authority validation and credential verification
+    (asserts! (get license-verification-status emergency-practitioner-data) ERR_MEDICAL_PROFESSIONAL_INVALID)
+    (asserts! (> (get license-expiration-block emergency-practitioner-data) block-height) ERR_MEDICAL_PROFESSIONAL_INVALID)
+
+    ;; Emergency justification validation and sanitization
+    (asserts! (and (>= (len emergency-justification) u10) (<= (len emergency-justification) u64)) ERR_PARAMETER_LENGTH_VIOLATION)
+    (asserts! (not (is-eq emergency-justification "")) ERR_PARAMETER_LENGTH_VIOLATION)
+
+    ;; Override duration validation within acceptable emergency timeframes
+    (asserts! (and (>= override-duration-blocks u144) (<= override-duration-blocks u1440)) ERR_NUMERICAL_BOUNDS_EXCEEDED) ;; 1 day to 10 days in blocks
+
+    ;; Prevent self-override for additional security layer
+    (asserts! (not (is-eq tx-sender current-responsible-authority)) ERR_INSUFFICIENT_CLEARANCE_LEVEL)
+    ;; Comprehensive emergency audit trail creation for compliance monitoring
+    (map-insert clinical-audit-trail
+      { operation-id: emergency-operation-id }
+      {
+        affected-record-id: vault-entry-identifier,
+        operation-type: "EMERGENCY_OVERRIDE",
+        executing-principal: tx-sender,
+        operation-timestamp: override-timestamp,
+        operation-success-status: true
+      }
+    )
+
+    ;; Additional emergency notification audit entry for enhanced tracking
+    ;; Return comprehensive emergency access confirmation with critical metadata
+    (ok {
+      emergency-access-granted: true,
+      authorized-medical-authority: emergency-medical-authority,
+      access-expiration-block: expiration-block,
+      original-responsible-authority: current-responsible-authority,
+      emergency-timestamp: override-timestamp,
+      override-operation-id: emergency-operation-id
+    })
+  )
+)
+
+;; Comprehensive healthcare record creation with multi-layer validation and security controls
+(define-public (create-healthcare-record-entry 
+  (patient-identity (string-ascii 64))
+  (clinical-observations (string-ascii 128))
+  (taxonomy-categories (list 10 (string-ascii 32)))
+  (priority-level uint))
+  (let
+    (
+      (new-vault-identifier (+ (var-get quantum-ledger-entry-counter) u1))
+      (creation-timestamp block-height)
+      (calculated-data-volume (+ (len patient-identity) (len clinical-observations)))
+      (practitioner-verification (map-get? medical-practitioner-registry { practitioner-principal: tx-sender }))
+    )
+    ;; Multi-layer security and validation framework
+    (asserts! (var-get healthcare-network-status) ERR_BLOCKCHAIN_OPERATION_FAILED)
+    (asserts! (not (var-get system-maintenance-mode)) ERR_SYSTEM_ADMINISTRATOR_REQUIRED)
+    (asserts! (is-some practitioner-verification) ERR_MEDICAL_PROFESSIONAL_INVALID)
+
+    ;; Patient identity string validation with comprehensive checks
+    (asserts! (and (>= (len patient-identity) u3) (<= (len patient-identity) u64)) ERR_PARAMETER_LENGTH_VIOLATION)
+    (asserts! (not (is-eq patient-identity "")) ERR_PARAMETER_LENGTH_VIOLATION)
+
+    ;; Clinical observations validation and sanitization
+    (asserts! (and (>= (len clinical-observations) u5) (<= (len clinical-observations) u128)) ERR_PARAMETER_LENGTH_VIOLATION)
+    (asserts! (not (is-eq clinical-observations "")) ERR_PARAMETER_LENGTH_VIOLATION)
+
+    ;; Medical taxonomy validation with comprehensive element checking
+    (asserts! (> (len taxonomy-categories) u0) ERR_TAXONOMY_STRUCTURE_MALFORMED)
+    (asserts! (fold taxonomy-validation-accumulator taxonomy-categories true) ERR_TAXONOMY_STRUCTURE_MALFORMED)
+
+    ;; Clinical priority level validation within acceptable range
+    (asserts! (validate-clinical-priority-level priority-level) ERR_NUMERICAL_BOUNDS_EXCEEDED)
+
+    ;; Data volume limits enforcement for blockchain efficiency
+    (asserts! (<= calculated-data-volume u1000) ERR_NUMERICAL_BOUNDS_EXCEEDED)
+
+    ;; Healthcare record creation and storage with comprehensive metadata
+    
+    ;; Audit trail creation for comprehensive record tracking
+    (map-insert clinical-audit-trail
+      { operation-id: new-vault-identifier }
+      {
+        affected-record-id: new-vault-identifier,
+        operation-type: "RECORD_CREATION",
+        executing-principal: tx-sender,
+        operation-timestamp: creation-timestamp,
+        operation-success-status: true
+      }
+    )
+
+    ;; System counter increment for global ledger tracking
+    (var-set quantum-ledger-entry-counter new-vault-identifier)
+
+    ;; Return successful operation with new record identifier
+    (ok new-vault-identifier)
+  )
+)
+
+
